@@ -1,0 +1,6 @@
+clang==11.0
+libclang==12.0.0
+pyclibrary==0.1.7
+pycparser==2.21
+iteration-utilities==0.11.0
+pytmpfile==0.1.8
