@@ -72,6 +72,49 @@ class CodeSplitter(c_ast.NodeVisitor):
         # Recurse as normal.
         super().generic_visit(node)
 
+# Build a typemap.  The typemap goes from nesting number -> name -> ID.
+# 
+class BuildTypemap(ScopedNodeVisitor):
+    def __init__(self):
+        super().__init__()
+
+        self.typemaps = Typemap()
+        self.current_id = -1
+        self.definition_maps = DefinitionMap()
+        self.ids_stack = []
+
+    def is_scoped_type(self, name):
+        return name in ['Compound', 'For', 'While', 'DoWhile', 'Switch']
+
+    def visit(self, node, id):
+        node_name = node.__class__.__name__
+
+        if is_scoped_type(node_name):
+            # Create a new level of nesting in the typemap.
+            self.typemaps.add_nest(id, self.current_id)
+            self.definition_maps.add_nest(id, self.current_id)
+
+            self.ids_stack.push(self.current_id)
+
+            self.current_id = id
+
+        super().visit(node, id)
+
+    def visit_Decl(self, node, id):
+        self.typemaps.add(node.name, node.type)
+
+    def visit_Typedef(self, node, id):
+        self.definition_maps.add(node.name, node.type)
+
+    def unvisit(self, node, id):
+        node_name = node.__class__.__name__
+
+        if is_scoped_type(node_name):
+            self.typemaps.unnest()
+            self.definition_maps.unnest()
+
+        self.current_id = self.ids_stack.pop()
+        super().unvisit(node, id)
 
 # Given a snip, get the undefined components of
 # that function: split into parameters that should
