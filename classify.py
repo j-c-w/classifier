@@ -4,7 +4,11 @@ import os
 
 from pycparser import c_parser, preprocess_file, c_ast, c_generator
 
+from typemap import Typemap, DefinitionMap
+from visitors import ScopedNodeVisitor
+
 _DEBUG_CODE_SPLITTER = False
+_DEBUG_BUILD_TYPEMAP = True
 
 class Unimplemented(Exception):
     pass
@@ -84,36 +88,56 @@ class BuildTypemap(ScopedNodeVisitor):
         self.ids_stack = []
 
     def is_scoped_type(self, name):
-        return name in ['Compound', 'For', 'While', 'DoWhile', 'Switch']
+        return name in ['FuncDecl', 'Compound', 'For', 'While', 'DoWhile', 'Switch']
 
     def visit(self, node, id):
         node_name = node.__class__.__name__
 
-        if is_scoped_type(node_name):
+        if self.is_scoped_type(node_name):
+            if _DEBUG_BUILD_TYPEMAP:
+                print ("Entering new scope: ", node_name)
             # Create a new level of nesting in the typemap.
             self.typemaps.add_nest(id, self.current_id)
             self.definition_maps.add_nest(id, self.current_id)
 
-            self.ids_stack.push(self.current_id)
+            self.ids_stack.append(self.current_id)
 
             self.current_id = id
+        elif _DEBUG_BUILD_TYPEMAP:
+            print("Not entering new scope: ", node_name)
 
         super().visit(node, id)
 
     def visit_Decl(self, node, id):
-        self.typemaps.add(node.name, node.type)
+        if _DEBUG_BUILD_TYPEMAP:
+            print ("Visiting decl :", node.name)
+        self.typemaps.add_type(node.name, node.type, self.current_id)
+
+        # Need to manually recurse -- some defs are
+        # e.g. functions
+        for typ, child in node.children():
+            self.visit(child, self.id_for(child))
 
     def visit_Typedef(self, node, id):
         self.definition_maps.add(node.name, node.type)
 
+        # Need to manually recurse -- some defs are
+        # e.g. functions
+        for typ, child in node.children():
+            self.visit(child, self.id_for(child))
+
     def unvisit(self, node, id):
         node_name = node.__class__.__name__
 
-        if is_scoped_type(node_name):
+        if self.is_scoped_type(node_name):
+            if _DEBUG_BUILD_TYPEMAP:
+                print("Exiting scope for ", node_name)
+
             self.typemaps.unnest()
             self.definition_maps.unnest()
 
-        self.current_id = self.ids_stack.pop()
+            self.current_id = self.ids_stack.pop()
+
         super().unvisit(node, id)
 
 # Given a snip, get the undefined components of
@@ -128,30 +152,83 @@ class GetParams(ScopedNodeVisitor):
         # defined at that nesting.
         self.defined_variables = {}
         self.current_nesting = -1 # IDs start from 0.
+        self.nesting_stack = []
 
     def is_scoped_type(self, name):
-        TODO
-        return name in ['']
+        return name in ['Compound', 'For', 'While', 'DoWhile', 'Switch']
 
-    def visit(self, node):
+    def visit(self, node, id):
         node_name = node.__class__.__name__
 
+        # if entering scope, set it up properly.
         if self.is_scoped_type(node_name):
+            self.nesting_stack.append(self.current_nesting)
+            self.current_nesting = id
+            self.defined_variables[self.current_nesting] = set()
 
+        super().visit(node, id)
 
-class GetTypes(c_ast.NodeVisitor):
-    def __init__(self):
-        super().__init__()
+    def unvisit(self, node, id):
+        node_name = node.__class__.__name__
 
-        self.types = []
+        # if exiting scope, then wind up the stack.
+        if self.is_scoped_type(node_name):
+            self.current_nesting = self.nesting_stack.pop()
+            del self.defined_variables[self.current_nesting]
+
+        super().unvisit(node, id)
+
+    # check that this is defined
+    def visit_ID(self, node, id):
+        if self.is_defined(node.name):
+            pass
+        else:
+            self.params.append(node.name)
+
+    # Add a new declaration o
+    def visit_Decl(self, node, id):
+        self.defined_variables[self.current_nesting].add(node.name)
+
+    # Go through the def stack to figure out if this is currently defined
+    def is_defined(self, name):
+        current_nest = self.current_nesting
+        nest = self.nesting_stack[:]
+
+        # go through the hierachy of type windows.
+        while len(nest) > 0:
+            if name in self.defined_variables[current_nest]:
+                return True
+            else:
+                current_nest = nest.pop()
+
+        # one last check as self.current_nesting is not included
+        # on the stack.
+        return name in self.defined_variables[current_nest]
+
 
 # Generate a function header for a snippet.
-def generate_function(snippet):
+# take a typemap that has both the types
+# for each variable name and the definitoin lookup
+# map so a whole chunk of code can be created.
+def generate_functions(snippet, typemap_walk):
     if snippet.__class__.__name__ == 'FuncDef':
         # Already a function :)
         return snippet
 
-    visitor = 
+    # Build a function header and body.
+
+def get_typemap(code):
+    v = BuildTypemap()
+
+    for item_def in code.ext:
+        # Note that there is a wee bug by splitting
+        # there here, which is that a function may appear
+        # to be undefined in its own body.
+        v.start_visit(item_def.decl)
+        v.start_visit(item_def.body)
+
+    return v
+
 
 def load_code(code_path):
     preprocessed = preprocess_file(code_path)
@@ -220,5 +297,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     ast = load_code(args.c_file)
+    typemap = get_typemap(ast)
+
     options = generate_options(args, ast)
+    functions = generate_functions(args, options, typemap)
+
     output_options(args, options)

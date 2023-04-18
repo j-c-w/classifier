@@ -7,12 +7,12 @@ class Typemap(object):
         self.typemap_map[-1] = {}
 
     def add_nest(self, id, parent_id=-1):
+        print("Adding nest", id)
         self.typemap_map[id] = {}
         self.parent_map[id] = parent_id
 
     def unnest(self):
-        del self.typemap_map[id]
-        del self.parent_map[id]
+        pass
 
     def add_type(self, name, type, nest_id):
         self.typemap_map[nest_id][name] = type
@@ -32,7 +32,7 @@ class Typemap(object):
             return None
 
 # TODO --- implement this properly.
-def DefinitionMap(object):
+class DefinitionMap(object):
     def __init__(self):
         self.defmap = {}
 
