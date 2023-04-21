@@ -210,12 +210,28 @@ class GetParams(ScopedNodeVisitor):
 # take a typemap that has both the types
 # for each variable name and the definitoin lookup
 # map so a whole chunk of code can be created.
-def generate_functions(snippet, typemap_walk):
+def generate_functions(snippet, snippet_nesting, typemap_walk):
     if snippet.__class__.__name__ == 'FuncDef':
         # Already a function :)
         return snippet
 
     # Build a function header and body.
+    param_getter = GetParams()
+    param_getter.start_visit(snippet)
+
+    params_list = []
+    # Get the variables and types that we have to create:
+    for param in param_getter.params:
+        params_list.append(
+                param.
+                TODO
+        )
+
+    func_type = IdentifierType(['void'])
+    func_args = ParamList([ ])
+    decl = FuncDecl(func_args, func_type)
+    func = FuncDef(decl, param_decls, snippet)
+
 
 def get_typemap(code):
     v = BuildTypemap()
